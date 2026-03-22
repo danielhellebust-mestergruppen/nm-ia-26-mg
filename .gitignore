@@ -1,0 +1,67 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE / Editor configurations
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# API Keys & Secrets
+config.py
+*secret*
+*credential*
+*.key
+*.pem
+token.json
+credentials.json
+
+# Caches and logs
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+logs/
+.claude
+*.lock
+
+# Generated Datasets, Weights, and Output files
+runs/
+merged_yolo_dataset/
+src/NorgesGruppen_Data_Object_Detection/datasets/
+src/NorgesGruppen_Data_Object_Detection/submission_v9/best_det.onnx
+src/NorgesGruppen_Data_Object_Detection/submission_v9/best_cls.onnx
+src/NorgesGruppen_Data_Object_Detection/submission_v9/yolov8*.pt
+*.pt
+*.onnx
+submission.zip
+src/Astar_Island_Norse_World_Prediction/data/
+src/Tripletex_AI_Accounting_Agent/tripletex/
+
+# Temporary upload scripts/logs
+upload_hf.py
+upload_models_hf.py
+hf_upload_log.txt
+hf_model_upload_log.txt
+
+# Kaggle / Hugging Face local cache
+~/.cache/huggingface/
+~/.cache/kagglehub/
