@@ -1,0 +1,26 @@
+# NorgesGruppen Data Object Detection & Classification
+torch
+torchvision
+torchaudio
+opencv-python
+ultralytics
+
+# Tripletex AI Accounting Agent
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+httpx>=0.25.0
+google-genai>=1.0.0
+pydantic>=2.0.0
+pdfplumber>=0.10.0
+
+# Astar Island Norse World Prediction
+requests>=2.31.0
+numpy>=1.26.0
+matplotlib>=3.8.0
+
+# Additional Workspace Orchestrator Dependencies
+colorama
+huggingface_hub
+kagglehub
+pyyaml
+tqdm

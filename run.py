@@ -271,8 +271,10 @@ def step_run_tripletex_agent():
         print(Fore.RED + f"Error: Cannot find {main_script}")
         return
         
-    print(Fore.YELLOW + "Checking Tripletex dependencies...")
-    subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(TRIPLETEX_DIR / "requirements.txt"), "--quiet"])
+    req_file = WORKSPACE_DIR / "requirements.txt"
+    if req_file.exists():
+        print(Fore.YELLOW + "Checking workspace dependencies...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req_file), "--quiet"])
 
     print(Fore.CYAN + "Starting Tripletex Agent (Uvicorn Server)...")
     try:
@@ -290,9 +292,9 @@ def step_run_astar_island():
         print(Fore.RED + f"Error: Cannot find {ASTAR_DIR}")
         return
 
-    req_file = ASTAR_DIR / "requirements.txt"
+    req_file = WORKSPACE_DIR / "requirements.txt"
     if req_file.exists():
-        print(Fore.YELLOW + "Checking Astar dependencies...")
+        print(Fore.YELLOW + "Checking workspace dependencies...")
         subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req_file), "--quiet"])
 
     options = [
