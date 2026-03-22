@@ -74,46 +74,37 @@ class AstarDataset(Dataset):
         gt = gt.copy()
         h, w = grid.shape
         
-        # 2. Base Grid One-Hot & Distance to Coast (CACHED)
-        if not hasattr(self, "_cache"): self._cache = {}
-        if idx not in self._cache:
-            orig_grid = self.samples[idx][0]
-            oh, ow = orig_grid.shape
-            mapping = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 10: 6, 11: 7}
-            cx = np.zeros((8, oh, ow), dtype=np.float32)
-            for y in range(oh):
-                for x_idx in range(ow):
-                    cx[mapping.get(int(orig_grid[y, x_idx]), 0), y, x_idx] = 1.0
-            ocean_mask = (orig_grid == 10)
-            cdist = np.full((oh, ow), 100, dtype=np.float32)
-            ys, xs = np.where(ocean_mask)
-            qy, qx = list(ys), list(xs)
-            for yy, xx in zip(ys, xs): cdist[yy, xx] = 0
-            head = 0
-            while head < len(qy):
-                cy, cx_pos = qy[head], qx[head]
-                head += 1
-                d = cdist[cy, cx_pos] + 1
-                for dy, dx in ((-1,0),(1,0),(0,-1),(0,1)):
-                    ny, nx = cy+dy, cx_pos+dx
-                    if 0 <= ny < oh and 0 <= nx < ow and cdist[ny, nx] > d:
-                        cdist[ny, nx] = d
-                        qy.append(ny)
-                        qx.append(nx)
-            cdist = cdist / max(1.0, float(np.max(cdist)))
-            self._cache[idx] = (cx, cdist)
+        # 2. Base Grid One-Hot
+        mapping = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 10: 6, 11: 7}
+        channels = 8
+        x = np.zeros((channels, h, w), dtype=np.float32)
+        for y in range(h):
+            for x_idx in range(w):
+                v = grid[y, x_idx]
+                c = mapping.get(int(v), 0)
+                x[c, y, x_idx] = 1.0
+                
+        # 3. Distance to Coast channel
+        ocean_mask = (grid == 10)
+        dist = np.full((h, w), 100, dtype=np.float32)
+        ys, xs = np.where(ocean_mask)
+        qy, qx = list(ys), list(xs)
+        for yy, xx in zip(ys, xs):
+            dist[yy, xx] = 0
+            
+        head = 0
+        while head < len(qy):
+            cy, cx = qy[head], qx[head]
+            head += 1
+            d = dist[cy, cx] + 1
+            for dy, dx in ((-1,0),(1,0),(0,-1),(0,1)):
+                ny, nx = cy+dy, cx+dx
+                if 0 <= ny < h and 0 <= nx < w and dist[ny, nx] > d:
+                    dist[ny, nx] = d
+                    qy.append(ny)
+                    qx.append(nx)
         
-        x, dist = self._cache[idx]
-        x, dist = x.copy(), dist.copy()
-        
-        x = np.rot90(x, k, axes=(1, 2))
-        dist = np.rot90(dist, k, axes=(0, 1))
-        if flip:
-            x = np.flip(x, axis=2)
-            dist = np.flip(dist, axis=1)
-        x = x.copy()
-        dist = dist.copy()
-
+        dist = dist / max(1.0, float(np.max(dist)))
         
         x_final = np.concatenate([x, dist[np.newaxis, :, :]], axis=0)
         gt_ch = gt.transpose((2, 0, 1))

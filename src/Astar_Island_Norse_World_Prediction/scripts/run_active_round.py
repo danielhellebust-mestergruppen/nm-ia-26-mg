@@ -200,7 +200,7 @@ def main() -> None:
     parser.add_argument("--floor", type=float, default=0.01)
     parser.add_argument(
         "--predictor-mode",
-        choices=["baseline", "spatial", "spatial_unet", "unet", "convlstm", "unet_spatial", "attn_unet", "attn_unet_spatial", "ensemble", "socio_unet", "time_socio_unet", "time_socio_deep_unet", "meta_ensemble"],
+        choices=["baseline", "spatial", "spatial_unet", "unet", "convlstm", "unet_spatial", "attn_unet", "attn_unet_spatial", "ensemble", "socio_unet", "time_socio_unet"],
         default="baseline",
         help="Prediction engine to use",
     )

@@ -28,21 +28,6 @@ try:
     from src.predictor_time_socio_unet import build_prediction_tensor_time_socio_unet
 except ImportError:
     build_prediction_tensor_time_socio_unet = None
-
-try:
-    from src.predictor_socio_unet import build_prediction_tensor_socio_unet
-except ImportError:
-    build_prediction_tensor_socio_unet = None
-
-try:
-    from src.predictor_time_socio_deep_unet import build_prediction_tensor_time_socio_deep_unet
-except ImportError:
-    build_prediction_tensor_time_socio_deep_unet = None
-
-try:
-    from src.predictor_vit import build_prediction_tensor_vit
-except ImportError:
-    build_prediction_tensor_vit = None
     
 from src.predictor_gnn import build_prediction_tensor_gnn
 from src.scoring import weighted_kl, score_from_weighted_kl
@@ -106,25 +91,7 @@ def main():
             pred_time = build_prediction_tensor_time_socio_unet(initial_grid, [])
             scores["Time-Socio"].append(score_from_weighted_kl(weighted_kl(gt, pred_time)))
             kls["Time-Socio"].append(weighted_kl(gt, pred_time))
-
-        # 6.75 Socio UNet
-        if build_prediction_tensor_socio_unet:
-            pred_socio = build_prediction_tensor_socio_unet(initial_grid, [])
-            scores["Socio-UNet"].append(score_from_weighted_kl(weighted_kl(gt, pred_socio)))
-            kls["Socio-UNet"].append(weighted_kl(gt, pred_socio))
-            
-        # 6.8 Time-Socio Deep UNet
-        if build_prediction_tensor_time_socio_deep_unet:
-            pred_deep = build_prediction_tensor_time_socio_deep_unet(initial_grid, [])
-            scores["Deep-Time-Socio"].append(score_from_weighted_kl(weighted_kl(gt, pred_deep)))
-            kls["Deep-Time-Socio"].append(weighted_kl(gt, pred_deep))
         
-        # 6.75 ViT
-        if build_prediction_tensor_vit:
-            pred_vit = build_prediction_tensor_vit(initial_grid, [])
-            scores["ViT"].append(score_from_weighted_kl(weighted_kl(gt, pred_vit)))
-            kls["ViT"].append(weighted_kl(gt, pred_vit))
-            
         # 7. Ensemble (Sweeping ratios)
         if build_prediction_tensor_time_socio_unet:
             for w_gnn in [0.1, 0.2, 0.3, 0.4]:
@@ -138,7 +105,7 @@ def main():
     print(f"{'Model':<20} | {'Avg Score (/100)':<18} | {'Avg KL Divergence'}")
     print("-" * 60)
     
-    models_to_print = ["Baseline", "Spatial", "UNet", "Attn-UNet", "GNN", "ConvLSTM", "Time-Socio", "Deep-Time-Socio", "Socio-UNet", "ViT"] + [f"Ensemble (GNN {w:.1f})" for w in [0.1, 0.2, 0.3, 0.4]]
+    models_to_print = ["Baseline", "Spatial", "UNet", "Attn-UNet", "GNN", "ConvLSTM", "Time-Socio"] + [f"Ensemble (GNN {w:.1f})" for w in [0.1, 0.2, 0.3, 0.4]]
     for model in models_to_print:
         if model in scores:
             avg_score = np.mean(scores[model])

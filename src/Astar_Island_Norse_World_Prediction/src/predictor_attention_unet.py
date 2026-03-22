@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -73,15 +71,6 @@ class AttentionUNet(nn.Module):
         self.pool2 = nn.MaxPool2d(2)
         self.enc3 = ResidualConv(192, 384)
         
-        # Adaptive Temperature Head
-        self.temp_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.temp_fc = nn.Sequential(
-            nn.Linear(384, 64),
-            nn.ReLU(inplace=True),
-            nn.Linear(64, 1),
-            nn.Sigmoid()
-        )
-        
         self.up1 = nn.ConvTranspose2d(384, 192, kernel_size=2, stride=2)
         self.att1 = AttentionGate(F_g=192, F_l=192, F_int=96)
         self.dec1 = ResidualConv(384, 192)
@@ -97,11 +86,6 @@ class AttentionUNet(nn.Module):
         e2 = self.enc2(self.pool1(e1))
         e3 = self.enc3(self.pool2(e2))
         
-        # Predict Temperature from Bottleneck
-        t_feat = self.temp_pool(e3).view(e3.size(0), -1)
-        temp = self.temp_fc(t_feat) * 1.5 + 0.5  # Scales Sigmoid to range [0.5, 2.0]
-        temp = temp.view(-1, 1, 1, 1) # Reshape for broadcasting
-        
         d1 = self.up1(e3)
         x2 = self.att1(g=d1, x=e2)
         d1 = torch.cat([d1, x2], dim=1)
@@ -113,7 +97,7 @@ class AttentionUNet(nn.Module):
         d2 = self.dec2(d2)
         
         out = self.out_conv(d2)
-        return torch.log_softmax(out / temp, dim=1)
+        return torch.log_softmax(out, dim=1)
 
 _ATTN_UNET_MODEL = None
 
@@ -174,35 +158,34 @@ def build_prediction_tensor_attn_unet(
     # --- TEST TIME AUGMENTATION (TTA) ---
     # We predict the normal map, plus flipped and rotated versions, and average the results.
     # This smooths out spatial biases in the convolutional filters and provides a free ~1-2% accuracy boost.
-    # Set ASTAR_PREDICTOR_DISABLE_TTA=1 for faster CV / iteration (single forward pass).
-    _tta_off = os.environ.get("ASTAR_PREDICTOR_DISABLE_TTA", "").lower() in ("1", "true", "yes")
     predictions = []
     
     with torch.no_grad():
-        rot_flip_pairs = [(0, False)] if _tta_off else [(k, f) for k in range(4) for f in (False, True)]
-        for k, flip in rot_flip_pairs:
-            # Apply augmentation to the base features
-            x_aug = np.rot90(x, k, axes=(1, 2))
-            dist_aug = np.rot90(dist, k)
-            if flip:
-                x_aug = np.flip(x_aug, axis=2)
-                dist_aug = np.flip(dist_aug, axis=1)
-
-            x_final_aug = np.concatenate([x_aug, dist_aug[np.newaxis, :, :]], axis=0)
-            tensor_x_aug = torch.from_numpy(x_final_aug.copy()).unsqueeze(0)
-
-            # Predict
-            log_pred_aug = model(tensor_x_aug)
-            pred_aug = torch.exp(log_pred_aug).squeeze(0).numpy()
-            pred_aug = pred_aug.transpose((1, 2, 0))
-
-            # Reverse the augmentation to align back to the original grid
-            if flip:
-                pred_aug = np.flip(pred_aug, axis=1)
-            pred_aug = np.rot90(pred_aug, -k, axes=(0, 1))
-
-            predictions.append(pred_aug)
+        for k in range(4): # 4 rotations
+            for flip in [False, True]:
+                # Apply augmentation to the base features
+                x_aug = np.rot90(x, k, axes=(1, 2))
+                dist_aug = np.rot90(dist, k)
+                if flip:
+                    x_aug = np.flip(x_aug, axis=2)
+                    dist_aug = np.flip(dist_aug, axis=1)
+                    
+                x_final_aug = np.concatenate([x_aug, dist_aug[np.newaxis, :, :]], axis=0)
+                tensor_x_aug = torch.from_numpy(x_final_aug.copy()).unsqueeze(0)
                 
+                # Predict
+                log_pred_aug = model(tensor_x_aug)
+                pred_aug = torch.exp(log_pred_aug).squeeze(0).numpy()
+                pred_aug = pred_aug.transpose((1, 2, 0))
+                
+                # Reverse the augmentation to align back to the original grid
+                if flip:
+                    pred_aug = np.flip(pred_aug, axis=1)
+                pred_aug = np.rot90(pred_aug, -k, axes=(0, 1))
+                
+                predictions.append(pred_aug)
+                
+    # Average the 8 TTA predictions
     pred = np.mean(predictions, axis=0)
     # ------------------------------------
     

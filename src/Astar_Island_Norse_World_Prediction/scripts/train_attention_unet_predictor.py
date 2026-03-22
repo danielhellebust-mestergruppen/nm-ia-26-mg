@@ -18,11 +18,11 @@ class AstarDataset(Dataset):
                 data = json.loads(fp.read_text(encoding="utf-8"))
                 if "ground_truth" not in data or "initial_grid" not in data:
                     continue
-                round_id = fp.name.split("_")[0]
-                if holdout_round and round_id == holdout_round: continue
                 grid = np.asarray(data["initial_grid"], dtype=np.int64)
                 gt = np.asarray(data["ground_truth"], dtype=np.float32)
                 self.samples.append((grid, gt))
+                round_id = fp.name.split("_")[0]
+                if holdout_round and round_id == holdout_round: continue
                 seen_rounds.add(round_id)
             except:
                 continue
@@ -71,46 +71,35 @@ class AstarDataset(Dataset):
         grid, gt = grid.copy(), gt.copy()
         h, w = grid.shape
         
-        # 2. Base Grid One-Hot & Distance to Coast (CACHED)
-        if not hasattr(self, "_cache"): self._cache = {}
-        if idx not in self._cache:
-            orig_grid = self.samples[idx][0]
-            oh, ow = orig_grid.shape
-            mapping = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 10: 6, 11: 7}
-            cx = np.zeros((8, oh, ow), dtype=np.float32)
-            for y in range(oh):
-                for x_idx in range(ow):
-                    cx[mapping.get(int(orig_grid[y, x_idx]), 0), y, x_idx] = 1.0
-            ocean_mask = (orig_grid == 10)
-            cdist = np.full((oh, ow), 100, dtype=np.float32)
-            ys, xs = np.where(ocean_mask)
-            qy, qx = list(ys), list(xs)
-            for yy, xx in zip(ys, xs): cdist[yy, xx] = 0
-            head = 0
-            while head < len(qy):
-                cy, cx_pos = qy[head], qx[head]
-                head += 1
-                d = cdist[cy, cx_pos] + 1
-                for dy, dx in ((-1,0),(1,0),(0,-1),(0,1)):
-                    ny, nx = cy+dy, cx_pos+dx
-                    if 0 <= ny < oh and 0 <= nx < ow and cdist[ny, nx] > d:
-                        cdist[ny, nx] = d
-                        qy.append(ny)
-                        qx.append(nx)
-            cdist = cdist / max(1.0, float(np.max(cdist)))
-            self._cache[idx] = (cx, cdist)
-        
-        x, dist = self._cache[idx]
-        x, dist = x.copy(), dist.copy()
-        
-        x = np.rot90(x, k, axes=(1, 2))
-        dist = np.rot90(dist, k, axes=(0, 1))
-        if flip:
-            x = np.flip(x, axis=2)
-            dist = np.flip(dist, axis=1)
-        x = x.copy()
-        dist = dist.copy()
-
+        # 2. Base Grid One-Hot
+        mapping = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 10: 6, 11: 7}
+        channels = 8
+        x = np.zeros((channels, h, w), dtype=np.float32)
+        for y in range(h):
+            for x_idx in range(w):
+                v = grid[y, x_idx]
+                c = mapping.get(int(v), 0)
+                x[c, y, x_idx] = 1.0
+                
+        # 3. Distance to Coast
+        ocean_mask = (grid == 10)
+        dist = np.full((h, w), 100, dtype=np.float32)
+        ys, xs = np.where(ocean_mask)
+        qy, qx = list(ys), list(xs)
+        for yy, xx in zip(ys, xs): dist[yy, xx] = 0
+            
+        head = 0
+        while head < len(qy):
+            cy, cx = qy[head], qx[head]
+            head += 1
+            d = dist[cy, cx] + 1
+            for dy, dx in ((-1,0),(1,0),(0,-1),(0,1)):
+                ny, nx = cy+dy, cx+dx
+                if 0 <= ny < h and 0 <= nx < w and dist[ny, nx] > d:
+                    dist[ny, nx] = d
+                    qy.append(ny)
+                    qx.append(nx)
+        dist = dist / max(1.0, float(np.max(dist)))
         
         x_final = np.concatenate([x, dist[np.newaxis, :, :]], axis=0)
         gt_ch = gt.transpose((2, 0, 1))
@@ -185,15 +174,6 @@ class AttentionUNet(nn.Module):
         self.pool2 = nn.MaxPool2d(2)
         self.enc3 = ResidualConv(192, 384)
         
-        # Adaptive Temperature Head
-        self.temp_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.temp_fc = nn.Sequential(
-            nn.Linear(384, 64),
-            nn.ReLU(inplace=True),
-            nn.Linear(64, 1),
-            nn.Sigmoid()
-        )
-        
         self.up1 = nn.ConvTranspose2d(384, 192, kernel_size=2, stride=2)
         self.att1 = AttentionGate(F_g=192, F_l=192, F_int=96)
         self.dec1 = ResidualConv(384, 192)
@@ -209,11 +189,6 @@ class AttentionUNet(nn.Module):
         e2 = self.enc2(self.pool1(e1))
         e3 = self.enc3(self.pool2(e2))
         
-        # Predict Temperature from Bottleneck
-        t_feat = self.temp_pool(e3).view(e3.size(0), -1)
-        temp = self.temp_fc(t_feat) * 1.5 + 0.5  # Scales Sigmoid to range [0.5, 2.0]
-        temp = temp.view(-1, 1, 1, 1) # Reshape for broadcasting
-        
         d1 = self.up1(e3)
         x2 = self.att1(g=d1, x=e2) # Attention applied to skip connection
         d1 = torch.cat([d1, x2], dim=1)
@@ -225,7 +200,7 @@ class AttentionUNet(nn.Module):
         d2 = self.dec2(d2)
         
         out = self.out_conv(d2)
-        return torch.log_softmax(out / temp, dim=1)
+        return torch.log_softmax(out, dim=1)
 
 def entropy_weighted_kl(log_pred, target, eps=1e-12):
     p = torch.clamp(target, eps, 1.0)

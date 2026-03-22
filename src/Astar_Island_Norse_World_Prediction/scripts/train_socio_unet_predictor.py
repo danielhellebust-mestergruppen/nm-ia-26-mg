@@ -9,16 +9,13 @@ from torch.utils.data import Dataset, DataLoader
 import random
 
 class AstarSocioDataset(Dataset):
-    def __init__(self, rounds_dir: Path, replays_dir: Path, exclude_rounds: set[str] = None):
+    def __init__(self, rounds_dir: Path, replays_dir: Path):
         self.samples = []
-        exclude_rounds = exclude_rounds or set()
         for fp in sorted(rounds_dir.glob("*_analysis.json")):
             data = json.loads(fp.read_text(encoding="utf-8"))
             if "ground_truth" not in data: continue
             
             round_id = data["round_id"]
-            if round_id in exclude_rounds: continue
-            
             seed_idx = data["seed_index"]
             
             replay_fp = replays_dir / f"{round_id}_seed{seed_idx}.json"
@@ -123,46 +120,33 @@ class AstarSocioDataset(Dataset):
             
         grid, gt, obs_grid = grid.copy(), gt.copy(), obs_grid.copy()
         
-        # 2. Base Grid One-Hot & Distance to Coast (CACHED)
-        if not hasattr(self, "_cache"): self._cache = {}
-        if idx not in self._cache:
-            orig_grid = self.samples[idx][0]
-            oh, ow = orig_grid.shape
-            mapping = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 10: 6, 11: 7}
-            cx = np.zeros((8, oh, ow), dtype=np.float32)
-            for y in range(oh):
-                for x_idx in range(ow):
-                    cx[mapping.get(int(orig_grid[y, x_idx]), 0), y, x_idx] = 1.0
-            ocean_mask = (orig_grid == 10)
-            cdist = np.full((oh, ow), 100, dtype=np.float32)
-            ys, xs = np.where(ocean_mask)
-            qy, qx = list(ys), list(xs)
-            for yy, xx in zip(ys, xs): cdist[yy, xx] = 0
-            head = 0
-            while head < len(qy):
-                cy, cx_pos = qy[head], qx[head]
-                head += 1
-                d = cdist[cy, cx_pos] + 1
-                for dy, dx in ((-1,0),(1,0),(0,-1),(0,1)):
-                    ny, nx = cy+dy, cx_pos+dx
-                    if 0 <= ny < oh and 0 <= nx < ow and cdist[ny, nx] > d:
-                        cdist[ny, nx] = d
-                        qy.append(ny)
-                        qx.append(nx)
-            cdist = cdist / max(1.0, float(np.max(cdist)))
-            self._cache[idx] = (cx, cdist)
-        
-        x, dist = self._cache[idx]
-        x, dist = x.copy(), dist.copy()
-        
-        x = np.rot90(x, k, axes=(1, 2))
-        dist = np.rot90(dist, k, axes=(0, 1))
-        if flip:
-            x = np.flip(x, axis=2)
-            dist = np.flip(dist, axis=1)
-        x = x.copy()
-        dist = dist.copy()
-
+        # 2. Base Grid One-Hot
+        mapping = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 10: 6, 11: 7}
+        x = np.zeros((8, h, w), dtype=np.float32)
+        for y in range(h):
+            for x_idx in range(w):
+                c = mapping.get(int(grid[y, x_idx]), 0)
+                x[c, y, x_idx] = 1.0
+                
+        # 3. Distance to Coast
+        ocean_mask = (grid == 10)
+        dist = np.full((h, w), 100, dtype=np.float32)
+        ys, xs = np.where(ocean_mask)
+        qy, qx = list(ys), list(xs)
+        for yy, xx in zip(ys, xs): dist[yy, xx] = 0
+            
+        head = 0
+        while head < len(qy):
+            cy, cx = qy[head], qx[head]
+            head += 1
+            d = dist[cy, cx] + 1
+            for dy, dx in ((-1,0),(1,0),(0,-1),(0,1)):
+                ny, nx = cy+dy, cx+dx
+                if 0 <= ny < h and 0 <= nx < w and dist[ny, nx] > d:
+                    dist[ny, nx] = d
+                    qy.append(ny)
+                    qx.append(nx)
+        dist = dist / max(1.0, float(np.max(dist)))
         
         # 4. Learning to Query: Masked Observations + Socio
         obs_mask = np.zeros((1, h, w), dtype=np.float32)
@@ -247,15 +231,6 @@ class SocioAttentionUNet(nn.Module):
         self.pool2 = nn.MaxPool2d(2)
         self.enc3 = ResidualConv(192, 384)
         
-        # Adaptive Temperature Head
-        self.temp_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.temp_fc = nn.Sequential(
-            nn.Linear(384, 64),
-            nn.ReLU(inplace=True),
-            nn.Linear(64, 1),
-            nn.Sigmoid()
-        )
-        
         self.up1 = nn.ConvTranspose2d(384, 192, kernel_size=2, stride=2)
         self.att1 = AttentionGate(F_g=192, F_l=192, F_int=96)
         self.dec1 = ResidualConv(384, 192)
@@ -271,11 +246,6 @@ class SocioAttentionUNet(nn.Module):
         e2 = self.enc2(self.pool1(e1))
         e3 = self.enc3(self.pool2(e2))
         
-        # Predict Temperature from Bottleneck
-        t_feat = self.temp_pool(e3).view(e3.size(0), -1)
-        temp = self.temp_fc(t_feat) * 1.5 + 0.5  # Scales Sigmoid to range [0.5, 2.0]
-        temp = temp.view(-1, 1, 1, 1) # Reshape for broadcasting
-        
         d1 = self.up1(e3)
         x2 = self.att1(g=d1, x=e2)
         d1 = torch.cat([d1, x2], dim=1)
@@ -287,7 +257,7 @@ class SocioAttentionUNet(nn.Module):
         d2 = self.dec2(d2)
         
         out = self.out_conv(d2)
-        return torch.log_softmax(out / temp, dim=1)
+        return torch.log_softmax(out, dim=1)
 
 def entropy_weighted_kl(log_pred, target, eps=1e-12):
     p = torch.clamp(target, eps, 1.0)
@@ -305,7 +275,7 @@ def main():
     parser.add_argument("--batch-size", default=8, type=int)
     parser.add_argument("--lr", default=1e-3, type=float)
     parser.add_argument("--seed", default=42, type=int)
-    parser.add_argument("--exclude-rounds", default="", type=str)
+    parser.add_argument("--holdout-round", default="", type=str)
     args = parser.parse_args()
     import random
     torch.manual_seed(args.seed)
@@ -317,8 +287,7 @@ def main():
     
     rounds_dir = Path(args.rounds_dir)
     replays_dir = Path(args.replays_dir)
-    exclude = set(r.strip() for r in args.exclude_rounds.split(",") if r.strip())
-    dataset = AstarSocioDataset(rounds_dir, replays_dir, exclude_rounds=exclude)
+    dataset = AstarSocioDataset(rounds_dir, replays_dir)
     if len(dataset) == 0: 
         print("No samples found.")
         return

@@ -30,11 +30,9 @@ class RoundSeedSample:
     ground_truth: np.ndarray  # HxWx6 probs
 
 
-def _load_samples(rounds_dir: Path, target_round: str = "") -> list[RoundSeedSample]:
+def _load_samples(rounds_dir: Path) -> list[RoundSeedSample]:
     out: list[RoundSeedSample] = []
     for fp in sorted(rounds_dir.glob("*_analysis.json")):
-        if target_round and not fp.name.startswith(target_round):
-            continue
         data = json.loads(fp.read_text(encoding="utf-8"))
         gt = np.asarray(data["ground_truth"], dtype=np.float64)
         if gt.ndim != 3 or gt.shape[-1] != NUM_CLASSES:
@@ -409,28 +407,12 @@ def run_evaluation(
     spatial_priors_file: Path | None = None,
     hybrid_unet_weight: float = 0.30,
     unet_model_path: Path | None = None,
-    target_round: str = "",
 ) -> dict[str, Any]:
     valid = {"grid", "random", "entropy", "grid_then_entropy"}
     unknown = [p for p in policies if p not in valid]
     if unknown:
         raise RuntimeError(f"Unknown policies: {unknown}; valid={sorted(valid)}")
-    if predictor_mode not in {
-        "baseline",
-        "spatial",
-        "spatial_unet",
-        "unet",
-        "convlstm",
-        "unet_spatial",
-        "attn_unet",
-        "attn_unet_spatial",
-        "ensemble",
-        "socio_unet",
-        "time_socio_unet",
-        "time_socio_deep_unet",
-        "meta_ensemble",
-        "gnn",
-    }:
+    if predictor_mode not in {"baseline", "spatial", "spatial_unet", "unet", "convlstm", "unet_spatial", "attn_unet", "attn_unet_spatial", "ensemble", "socio_unet", "time_socio_unet", "gnn"}:
         raise RuntimeError("predictor_mode must be valid")
     if distance_backend not in {"python", "scipy"}:
         raise RuntimeError("distance_backend must be one of {python,scipy}")
@@ -444,7 +426,7 @@ def run_evaluation(
     if priors_file is None:
         default_priors = ROOT / "data" / "reports" / "tuned_priors.json"
         priors_file = default_priors if default_priors.is_file() else None
-    samples = _load_samples(rounds_dir, target_round)
+    samples = _load_samples(rounds_dir)
     if not samples:
         raise RuntimeError(f"No *_analysis.json samples found in {rounds_dir}")
     if limit_samples > 0:
@@ -569,7 +551,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--predictor-mode",
-        choices=["baseline", "spatial", "spatial_unet", "unet", "convlstm", "unet_spatial", "attn_unet", "attn_unet_spatial", "ensemble", "socio_unet", "time_socio_unet", "time_socio_deep_unet", "meta_ensemble"],
+        choices=["baseline", "spatial", "spatial_unet", "unet", "convlstm", "unet_spatial", "attn_unet", "attn_unet_spatial", "ensemble", "socio_unet", "time_socio_unet", "gnn"],
         default="baseline",
     )
     parser.add_argument(
@@ -639,7 +621,6 @@ def main() -> None:
     )
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--limit-samples", type=int, default=0, help="0 means all cached samples")
-    parser.add_argument("--target-round", type=str, default="", help="Only evaluate this specific round")
     args = parser.parse_args()
 
     policies = [p.strip() for p in args.policies.split(",") if p.strip()]
@@ -654,7 +635,6 @@ def main() -> None:
         seed=args.seed,
         limit_samples=args.limit_samples,
         predictor_mode=args.predictor_mode,
-        target_round=args.target_round,
         tau=args.tau,
         smoothing_weight=args.smoothing_weight,
         smoothing_passes=args.smoothing_passes,

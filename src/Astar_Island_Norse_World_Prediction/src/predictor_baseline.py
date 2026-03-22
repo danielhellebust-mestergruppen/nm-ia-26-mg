@@ -15,8 +15,6 @@ from .predictor_attention_unet import build_prediction_tensor_attn_unet
 from .predictor_ensemble import build_prediction_tensor_ensemble
 from .predictor_socio_unet import build_prediction_tensor_socio_unet
 from .predictor_time_socio_unet import build_prediction_tensor_time_socio_unet
-from .predictor_time_socio_deep_unet import build_prediction_tensor_time_socio_deep_unet
-from .predictor_meta_ensemble import build_prediction_tensor_meta_ensemble
 
 _STATIC_CLASS_PRIOR_SHRINK = 0.80  # class-0 (incl. ocean) and mountain dampening
 
@@ -207,24 +205,6 @@ def build_prediction_tensor(
         )
     elif predictor_mode == "time_socio_unet":
         return build_prediction_tensor_time_socio_unet(
-            initial_grid=initial_grid,
-            observations=observations,
-            floor=floor
-        )
-    elif predictor_mode == "time_socio_deep_unet":
-        return build_prediction_tensor_time_socio_deep_unet(
-            initial_grid=initial_grid,
-            observations=observations,
-            floor=floor
-        )
-    elif predictor_mode == "ensemble":
-        return build_prediction_tensor_ensemble(
-            initial_grid=initial_grid,
-            observations=observations,
-            floor=floor
-        )
-    elif predictor_mode == "meta_ensemble":
-        return build_prediction_tensor_meta_ensemble(
             initial_grid=initial_grid,
             observations=observations,
             floor=floor

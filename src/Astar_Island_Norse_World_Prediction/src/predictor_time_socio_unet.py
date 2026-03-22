@@ -10,18 +10,16 @@ from .scoring import apply_probability_floor
 from .types import grid_value_to_class_index, NUM_CLASSES
 
 class ResidualConv(nn.Module):
-    def __init__(self, in_channels, out_channels, dropout_prob=0.2):
+    def __init__(self, in_channels, out_channels):
         super().__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(p=dropout_prob)
+            nn.ReLU(inplace=True)
         )
         self.conv2 = nn.Sequential(
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.Dropout2d(p=dropout_prob)
+            nn.BatchNorm2d(out_channels)
         )
         self.shortcut = nn.Sequential()
         if in_channels != out_channels:
@@ -62,15 +60,6 @@ class TimeSocioAttentionUNet(nn.Module):
         self.pool2 = nn.MaxPool2d(2)
         self.enc3 = ResidualConv(192, 384)
         
-        # Adaptive Temperature Head
-        self.temp_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.temp_fc = nn.Sequential(
-            nn.Linear(384, 64),
-            nn.ReLU(inplace=True),
-            nn.Linear(64, 1),
-            nn.Sigmoid()
-        )
-        
         self.up1 = nn.ConvTranspose2d(384, 192, kernel_size=2, stride=2)
         self.att1 = AttentionGate(F_g=192, F_l=192, F_int=96)
         self.dec1 = ResidualConv(384, 192)
@@ -86,11 +75,6 @@ class TimeSocioAttentionUNet(nn.Module):
         e2 = self.enc2(self.pool1(e1))
         e3 = self.enc3(self.pool2(e2))
         
-        # Predict Temperature from Bottleneck
-        t_feat = self.temp_pool(e3).view(e3.size(0), -1)
-        temp = self.temp_fc(t_feat) * 1.5 + 0.5  # Scales Sigmoid to range [0.5, 2.0]
-        temp = temp.view(-1, 1, 1, 1) # Reshape for broadcasting
-        
         d1 = self.up1(e3)
         x2 = self.att1(g=d1, x=e2)
         d1 = torch.cat([d1, x2], dim=1)
@@ -102,7 +86,7 @@ class TimeSocioAttentionUNet(nn.Module):
         d2 = self.dec2(d2)
         
         out = self.out_conv(d2)
-        return torch.log_softmax(out / temp, dim=1)
+        return torch.log_softmax(out, dim=1)
 
 _TIME_SOCIO_UNET_MODEL = None
 

@@ -60,15 +60,6 @@ class SocioAttentionUNet(nn.Module):
         self.pool2 = nn.MaxPool2d(2)
         self.enc3 = ResidualConv(192, 384)
         
-        # Adaptive Temperature Head
-        self.temp_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.temp_fc = nn.Sequential(
-            nn.Linear(384, 64),
-            nn.ReLU(inplace=True),
-            nn.Linear(64, 1),
-            nn.Sigmoid()
-        )
-        
         self.up1 = nn.ConvTranspose2d(384, 192, kernel_size=2, stride=2)
         self.att1 = AttentionGate(F_g=192, F_l=192, F_int=96)
         self.dec1 = ResidualConv(384, 192)
@@ -84,11 +75,6 @@ class SocioAttentionUNet(nn.Module):
         e2 = self.enc2(self.pool1(e1))
         e3 = self.enc3(self.pool2(e2))
         
-        # Predict Temperature from Bottleneck
-        t_feat = self.temp_pool(e3).view(e3.size(0), -1)
-        temp = self.temp_fc(t_feat) * 1.5 + 0.5  # Scales Sigmoid to range [0.5, 2.0]
-        temp = temp.view(-1, 1, 1, 1) # Reshape for broadcasting
-        
         d1 = self.up1(e3)
         x2 = self.att1(g=d1, x=e2)
         d1 = torch.cat([d1, x2], dim=1)
@@ -100,7 +86,7 @@ class SocioAttentionUNet(nn.Module):
         d2 = self.dec2(d2)
         
         out = self.out_conv(d2)
-        return torch.log_softmax(out / temp, dim=1)
+        return torch.log_softmax(out, dim=1)
 
 _SOCIO_UNET_MODEL = None
 
